@@ -7,14 +7,17 @@ interface SessionData {
     participants: { name: string; email: string }[];
 }
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
-    const session = await kv.get<SessionData>(`session:${params.id}`);
+export async function GET(
+    _req: Request,
+    { params }: { params: Promise<{ id: string }> }
+) {
+    const { id } = await params;
+    const session = await kv.get<SessionData>(`session:${id}`);
 
     if (!session) {
         return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    // Only expose what's safe: title, status, and names (never emails, never the token).
     return NextResponse.json({
         title: session.title,
         closed: session.closed,
