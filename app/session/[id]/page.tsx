@@ -9,6 +9,8 @@ interface SessionInfo {
     participantNames: string[];
 }
 
+const VISIBLE_PILL_COUNT = 5;
+
 export default function SessionPage() {
     const params = useParams();
     const id = params.id as string;
@@ -22,6 +24,7 @@ export default function SessionPage() {
     const [closing, setClosing] = useState(false);
     const [closeError, setCloseError] = useState('');
     const [notFound, setNotFound] = useState(false);
+    const [copied, setCopied] = useState(false);
 
     async function loadInfo() {
         const res = await fetch(`/api/sessions/${id}`);
@@ -86,6 +89,18 @@ export default function SessionPage() {
         }
     }
 
+    async function handleCopyLink() {
+        try {
+            await navigator.clipboard.writeText(window.location.href);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch {
+            // Clipboard API can fail on non-HTTPS/localhost in some browsers — fall
+            // back to a prompt so the user can still grab the link manually.
+            window.prompt('Copy this link:', window.location.href);
+        }
+    }
+
     if (notFound) {
         return (
             <main className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -102,10 +117,21 @@ export default function SessionPage() {
         );
     }
 
+    const visibleNames = info.participantNames.slice(0, VISIBLE_PILL_COUNT);
+    const remainingCount = info.participantNames.length - visibleNames.length;
+
     return (
         <main className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 flex items-center justify-center px-4 py-12">
             <div className="w-full max-w-md bg-white rounded-2xl shadow-lg shadow-slate-200 p-8">
-                <h1 className="text-2xl font-semibold text-slate-900 mb-1">{info.title}</h1>
+                <div className="flex items-start justify-between gap-3 mb-1">
+                    <h1 className="text-2xl font-semibold text-slate-900">{info.title}</h1>
+                    <button
+                        onClick={handleCopyLink}
+                        className="shrink-0 text-xs font-medium text-slate-600 border border-slate-300 rounded-full px-3 py-1.5 hover:bg-slate-50 transition-colors"
+                    >
+                        {copied ? 'Copied!' : 'Copy link'}
+                    </button>
+                </div>
 
                 {info.closed ? (
                     <p className="text-sm text-emerald-600 mt-4">
@@ -118,7 +144,7 @@ export default function SessionPage() {
                         </p>
 
                         <ul className="flex flex-wrap gap-2 mb-6">
-                            {info.participantNames.map((n) => (
+                            {visibleNames.map((n) => (
                                 <li
                                     key={n}
                                     className="bg-slate-100 text-slate-700 text-xs font-medium px-2.5 py-1 rounded-full"
@@ -126,6 +152,11 @@ export default function SessionPage() {
                                     {n}
                                 </li>
                             ))}
+                            {remainingCount > 0 && (
+                                <li className="bg-slate-200 text-slate-600 text-xs font-medium px-2.5 py-1 rounded-full">
+                                    + {remainingCount} other{remainingCount === 1 ? '' : 's'}
+                                </li>
+                            )}
                         </ul>
 
                         <form onSubmit={handleJoin} className="space-y-4">
