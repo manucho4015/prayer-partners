@@ -8,14 +8,18 @@ interface SessionData {
     participants: { name: string; email: string }[];
 }
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(
+    req: Request,
+    { params }: { params: Promise<{ id: string }> }
+) {
+    const { id } = await params;
     const { name, email } = await req.json();
 
     if (!name?.trim() || !email?.includes('@')) {
         return NextResponse.json({ error: 'Please provide a valid name and email.' }, { status: 400 });
     }
 
-    const key = `session:${params.id}`;
+    const key = `session:${id}`;
     const session = await kv.get<SessionData>(key);
 
     if (!session) return NextResponse.json({ error: 'Session not found.' }, { status: 404 });
