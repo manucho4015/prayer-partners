@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { kv } from '@vercel/kv';
+import { redis } from '@/lib/redis';
 
 export async function POST(req: Request) {
     const { title, adminName, adminEmail } = await req.json();
@@ -11,7 +11,7 @@ export async function POST(req: Request) {
     const id = crypto.randomUUID();
     const adminToken = crypto.randomUUID();
 
-    await kv.set(`session:${id}`, {
+    await redis.set(`session:${id}`, {
         title: title.trim(),
         adminName: adminName.trim(),
         adminEmail: adminEmail.trim(),
