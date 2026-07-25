@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { kv } from '@vercel/kv';
+import { redis } from '@/lib/redis';
 
 interface SessionData {
     title: string;
@@ -20,7 +20,7 @@ export async function POST(
     }
 
     const key = `session:${id}`;
-    const session = await kv.get<SessionData>(key);
+    const session = await redis.get<SessionData>(key);
 
     if (!session) return NextResponse.json({ error: 'Session not found.' }, { status: 404 });
     if (session.closed) return NextResponse.json({ error: 'This session has already closed.' }, { status: 400 });
@@ -33,7 +33,7 @@ export async function POST(
     }
 
     session.participants.push({ name: name.trim(), email: email.trim() });
-    await kv.set(key, session);
+    await redis.set(key, session);
 
     return NextResponse.json({ ok: true });
 }
