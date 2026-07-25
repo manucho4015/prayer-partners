@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { kv } from '@vercel/kv';
+import { redis } from '@/lib/redis';
 
 interface SessionData {
     title: string;
@@ -12,7 +12,7 @@ export async function GET(
     { params }: { params: Promise<{ id: string }> }
 ) {
     const { id } = await params;
-    const session = await kv.get<SessionData>(`session:${id}`);
+    const session = await redis.get<SessionData>(`session:${id}`);
 
     if (!session) {
         return NextResponse.json({ error: 'Not found' }, { status: 404 });
