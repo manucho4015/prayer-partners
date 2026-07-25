@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
-import { Resend } from 'resend';
+import emailjs from '@emailjs/nodejs';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+emailjs.init({
+    publicKey: process.env.EMAILJS_PUBLIC_KEY!,
+    privateKey: process.env.EMAILJS_PRIVATE_KEY!,
+});
 
 interface Participant {
     name: string;
@@ -16,6 +19,9 @@ interface SessionData {
     participants: Participant[];
 }
 
+// Sattolo's algorithm: a random permutation that forms a single cycle over
+// all participants. Guarantees no one is assigned to themselves, and no two
+// people are assigned to each other (unlike a generic derangement).
 function sattoloCycle<T>(items: T[]): T[] {
     const arr = [...items];
     for (let i = arr.length - 1; i > 0; i--) {
@@ -49,23 +55,37 @@ export async function POST(
         prayedFor: shuffled[i],
     }));
 
-    try {
-        await Promise.all(
-            assignments.map(({ prayer, prayedFor }) =>
-                resend.emails.send({
-                    from: 'Prayer Partners <onboarding@resend.dev>',
-                    to: prayer.email,
-                    subject: `Your Prayer Partner — ${session.title}`,
-                    text: `Hi ${prayer.name},\n\nFor "${session.title}", you've been matched to pray for ${prayedFor.name}.\n\nKeep it between you and God — that's the whole point!`,
-                })
-            )
-        );
-    } catch (err) {
-        console.error(err);
-        return NextResponse.json({ error: 'Failed to send one or more emails.' }, { status: 500 });
+    // Send sequentially with a small delay — EmailJS's free tier throttles
+    // bursts of concurrent requests, so Promise.all can trigger rate-limit errors.
+    let sent = 0;
+    const failures: string[] = [];
+
+    for (const { prayer, prayedFor } of assignments) {
+        try {
+            await emailjs.send(
+                process.env.EMAILJS_SERVICE_ID!,
+                process.env.EMAILJS_TEMPLATE_ID!,
+                {
+                    to_name: prayer.name,
+                    to_email: prayer.email,
+                    partner_name: prayedFor.name,
+                    session_title: session.title,
+                }
+            );
+            sent++;
+        } catch (err) {
+            console.error(`Failed to email ${prayer.email}:`, err);
+            failures.push(prayer.email);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300)); // small buffer between sends
     }
 
+    if (failures.length > 0 && sent === 0) {
+        return NextResponse.json({ error: 'Failed to send any emails.' }, { status: 500 });
+    }
+
+    // Mark closed briefly so late viewers see the right state, then let it expire.
     await kv.set(key, { ...session, closed: true, participants: [] }, { ex: 60 });
 
-    return NextResponse.json({ ok: true, sent: assignments.length });
+    return NextResponse.json({ ok: true, sent, failed: failures });
 }
