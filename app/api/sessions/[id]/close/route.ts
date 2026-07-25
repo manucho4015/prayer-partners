@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { kv } from '@vercel/kv';
+import { redis } from '@/lib/redis';
 import emailjs from '@emailjs/nodejs';
 
 emailjs.init({
@@ -19,9 +19,6 @@ interface SessionData {
     participants: Participant[];
 }
 
-// Sattolo's algorithm: a random permutation that forms a single cycle over
-// all participants. Guarantees no one is assigned to themselves, and no two
-// people are assigned to each other (unlike a generic derangement).
 function sattoloCycle<T>(items: T[]): T[] {
     const arr = [...items];
     for (let i = arr.length - 1; i > 0; i--) {
@@ -38,7 +35,7 @@ export async function POST(
     const { id } = await params;
     const { adminToken } = await req.json();
     const key = `session:${id}`;
-    const session = await kv.get<SessionData>(key);
+    const session = await redis.get<SessionData>(key);
 
     if (!session) return NextResponse.json({ error: 'Session not found.' }, { status: 404 });
     if (session.closed) return NextResponse.json({ error: 'Already closed.' }, { status: 400 });
@@ -55,8 +52,6 @@ export async function POST(
         prayedFor: shuffled[i],
     }));
 
-    // Send sequentially with a small delay — EmailJS's free tier throttles
-    // bursts of concurrent requests, so Promise.all can trigger rate-limit errors.
     let sent = 0;
     const failures: string[] = [];
 
@@ -77,15 +72,14 @@ export async function POST(
             console.error(`Failed to email ${prayer.email}:`, err);
             failures.push(prayer.email);
         }
-        await new Promise((resolve) => setTimeout(resolve, 300)); // small buffer between sends
+        await new Promise((resolve) => setTimeout(resolve, 300));
     }
 
     if (failures.length > 0 && sent === 0) {
         return NextResponse.json({ error: 'Failed to send any emails.' }, { status: 500 });
     }
 
-    // Mark closed briefly so late viewers see the right state, then let it expire.
-    await kv.set(key, { ...session, closed: true, participants: [] }, { ex: 60 });
+    await redis.set(key, { ...session, closed: true, participants: [] }, { ex: 60 });
 
     return NextResponse.json({ ok: true, sent, failed: failures });
 }
