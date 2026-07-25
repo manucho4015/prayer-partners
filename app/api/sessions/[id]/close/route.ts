@@ -16,9 +16,6 @@ interface SessionData {
     participants: Participant[];
 }
 
-// Sattolo's algorithm: a random permutation that forms a single cycle over
-// all participants. Guarantees no one is assigned to themselves, and no two
-// people are assigned to each other (unlike a generic derangement).
 function sattoloCycle<T>(items: T[]): T[] {
     const arr = [...items];
     for (let i = arr.length - 1; i > 0; i--) {
@@ -28,9 +25,13 @@ function sattoloCycle<T>(items: T[]): T[] {
     return arr;
 }
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(
+    req: Request,
+    { params }: { params: Promise<{ id: string }> }
+) {
+    const { id } = await params;
     const { adminToken } = await req.json();
-    const key = `session:${params.id}`;
+    const key = `session:${id}`;
     const session = await kv.get<SessionData>(key);
 
     if (!session) return NextResponse.json({ error: 'Session not found.' }, { status: 404 });
@@ -52,7 +53,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         await Promise.all(
             assignments.map(({ prayer, prayedFor }) =>
                 resend.emails.send({
-                    from: 'Prayer Partners <onboarding@resend.dev>', // swap for your verified domain
+                    from: 'Prayer Partners <onboarding@resend.dev>',
                     to: prayer.email,
                     subject: `Your Prayer Partner — ${session.title}`,
                     text: `Hi ${prayer.name},\n\nFor "${session.title}", you've been matched to pray for ${prayedFor.name}.\n\nKeep it between you and God — that's the whole point!`,
@@ -64,8 +65,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         return NextResponse.json({ error: 'Failed to send one or more emails.' }, { status: 500 });
     }
 
-    // Mark closed briefly so late viewers see the right state, then delete the
-    // session entirely — nothing about the matching persists anywhere.
     await kv.set(key, { ...session, closed: true, participants: [] }, { ex: 60 });
 
     return NextResponse.json({ ok: true, sent: assignments.length });
