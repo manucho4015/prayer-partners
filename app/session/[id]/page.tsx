@@ -48,9 +48,16 @@ export default function SessionPage() {
     const [closeError, setCloseError] = useState('');
     const [notFound, setNotFound] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
 
     const [joinedHere, setJoinedHere] = useState<JoinedRecord[]>([]);
     const [selectedCheck, setSelectedCheck] = useState<NameOption | null>(null);
+
+    async function handleRefresh() {
+        setRefreshing(true);
+        await loadInfo();
+        setRefreshing(false);
+    }
 
     function loadJoinedHere() {
         try {
@@ -170,12 +177,34 @@ export default function SessionPage() {
             <div className="w-full max-w-md bg-white rounded-2xl shadow-lg shadow-slate-200 p-8">
                 <div className="flex items-start justify-between gap-3 mb-1">
                     <h1 className="text-2xl font-semibold text-slate-900">{info.title}</h1>
-                    <button
-                        onClick={handleCopyLink}
-                        className="shrink-0 text-xs font-medium text-slate-600 border border-slate-300 rounded-full px-3 py-1.5 hover:bg-slate-50 transition-colors"
-                    >
-                        {copied ? 'Copied!' : 'Copy link'}
-                    </button>
+                    <div className="flex gap-2 shrink-0">
+                        <button
+                            onClick={handleRefresh}
+                            disabled={refreshing}
+                            aria-label="Refresh"
+                            className="shrink-0 border border-slate-300 rounded-full p-2 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                        >
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`}
+                            >
+                                <path d="M21 12a9 9 0 1 1-3-6.7" />
+                                <path d="M21 3v6h-6" />
+                            </svg>
+                        </button>
+                        <button
+                            onClick={handleCopyLink}
+                            className="text-xs font-medium text-slate-600 border border-slate-300 rounded-full px-3 py-1.5 hover:bg-slate-50 transition-colors"
+                        >
+                            {copied ? 'Copied!' : 'Copy link'}
+                        </button>
+                    </div>
                 </div>
 
                 {info.closed ? (
