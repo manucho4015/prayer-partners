@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import AsyncSelect from 'react-select/async';
 
 interface SessionInfo {
     title: string;
@@ -9,7 +10,29 @@ interface SessionInfo {
     participantNames: string[];
 }
 
-const VISIBLE_PILL_COUNT = 5;
+interface JoinedRecord {
+    name: string;
+    email: string;
+}
+
+interface NameOption {
+    label: string;
+    value: string;
+}
+
+const selectStyles = {
+    control: (base: any, state: any) => ({
+        ...base,
+        borderRadius: '0.5rem',
+        borderColor: state.isFocused ? '#0f172a' : '#cbd5e1',
+        boxShadow: 'none',
+        fontSize: '0.875rem',
+        minHeight: '38px',
+        '&:hover': { borderColor: '#0f172a' },
+    }),
+    placeholder: (base: any) => ({ ...base, color: '#94a3b8' }),
+    menu: (base: any) => ({ ...base, fontSize: '0.875rem', zIndex: 20 }),
+};
 
 export default function SessionPage() {
     const params = useParams();
@@ -26,6 +49,18 @@ export default function SessionPage() {
     const [notFound, setNotFound] = useState(false);
     const [copied, setCopied] = useState(false);
 
+    const [joinedHere, setJoinedHere] = useState<JoinedRecord[]>([]);
+    const [selectedCheck, setSelectedCheck] = useState<NameOption | null>(null);
+
+    function loadJoinedHere() {
+        try {
+            const raw = localStorage.getItem(`joined_${id}`);
+            setJoinedHere(raw ? JSON.parse(raw) : []);
+        } catch {
+            setJoinedHere([]);
+        }
+    }
+
     async function loadInfo() {
         const res = await fetch(`/api/sessions/${id}`);
         if (!res.ok) {
@@ -38,6 +73,7 @@ export default function SessionPage() {
     useEffect(() => {
         loadInfo();
         setIsAdmin(!!localStorage.getItem(`admin_token_${id}`));
+        loadJoinedHere();
     }, [id]);
 
     async function handleJoin(e: React.FormEvent) {
@@ -54,6 +90,10 @@ export default function SessionPage() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Failed to join');
 
+            const updated = [...joinedHere, { name: name.trim(), email: email.trim() }];
+            localStorage.setItem(`joined_${id}`, JSON.stringify(updated));
+            setJoinedHere(updated);
+
             setName('');
             setEmail('');
             setJoinStatus('idle');
@@ -62,6 +102,14 @@ export default function SessionPage() {
             setJoinStatus('error');
             setJoinError(err instanceof Error ? err.message : 'Something went wrong');
         }
+    }
+
+    async function loadNameOptions(inputValue: string): Promise<NameOption[]> {
+        if (!inputValue.trim()) return [];
+        const res = await fetch(`/api/sessions/${id}/search?q=${encodeURIComponent(inputValue)}`);
+        if (!res.ok) return [];
+        const data = await res.json();
+        return data.names.map((n: string) => ({ label: n, value: n }));
     }
 
     async function handleClose() {
@@ -95,8 +143,6 @@ export default function SessionPage() {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         } catch {
-            // Clipboard API can fail on non-HTTPS/localhost in some browsers — fall
-            // back to a prompt so the user can still grab the link manually.
             window.prompt('Copy this link:', window.location.href);
         }
     }
@@ -117,8 +163,7 @@ export default function SessionPage() {
         );
     }
 
-    const visibleNames = info.participantNames.slice(0, VISIBLE_PILL_COUNT);
-    const remainingCount = info.participantNames.length - visibleNames.length;
+    const otherCount = Math.max(0, info.participantNames.length - joinedHere.length);
 
     return (
         <main className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 flex items-center justify-center px-4 py-12">
@@ -134,30 +179,41 @@ export default function SessionPage() {
                 </div>
 
                 {info.closed ? (
-                    <p className="text-sm text-emerald-600 mt-4">
+                    <p className="text-sm text-green-700 mt-4">
                         This session has closed. Assignments were emailed to everyone — check your inbox!
                     </p>
                 ) : (
                     <>
-                        <p className="text-slate-500 text-sm mb-6">
-                            {info.participantNames.length} joined so far. Add your name below.
+                        <p className="text-slate-500 text-sm mb-3">
+                            {info.participantNames.length} joined so far. Add your name and email below
                         </p>
 
-                        <ul className="flex flex-wrap gap-2 mb-6">
-                            {visibleNames.map((n) => (
-                                <li
-                                    key={n}
-                                    className="bg-slate-100 text-slate-700 text-xs font-medium px-2.5 py-1 rounded-full"
-                                >
-                                    {n}
-                                </li>
-                            ))}
-                            {remainingCount > 0 && (
-                                <li className="bg-slate-200 text-slate-600 text-xs font-medium px-2.5 py-1 rounded-full">
-                                    + {remainingCount} other{remainingCount === 1 ? '' : 's'}
-                                </li>
-                            )}
-                        </ul>
+                        {(joinedHere.length > 0 || otherCount > 0) && (
+                            <div className="flex items-center gap-3 flex-wrap mb-6">
+                                {joinedHere.length > 0 && (
+                                    <div className="flex flex-wrap gap-2">
+                                        {joinedHere.map((p) => (
+                                            <span
+                                                key={p.email}
+                                                className="bg-slate-100 text-slate-700 text-xs font-medium px-2.5 py-1 rounded-full"
+                                            >
+                                                {p.name}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {joinedHere.length > 0 && otherCount > 0 && (
+                                    <div className="w-px h-4 bg-slate-300" />
+                                )}
+
+                                {otherCount > 0 && (
+                                    <span className="bg-slate-200 text-slate-600 text-xs font-medium px-2.5 py-1 rounded-full">
+                                        {otherCount} other{otherCount === 1 ? '' : 's'}
+                                    </span>
+                                )}
+                            </div>
+                        )}
 
                         <form onSubmit={handleJoin} className="space-y-4">
                             <div>
@@ -190,6 +246,30 @@ export default function SessionPage() {
                                 {joinStatus === 'loading' ? 'Joining…' : 'Join session'}
                             </button>
                         </form>
+
+                        <div className="mt-6 pt-5 border-t border-slate-200">
+                            <p className="text-xs text-slate-500 mb-2">
+                                Joined on someone else's phone? Search your name:
+                            </p>
+                            <AsyncSelect
+                                cacheOptions
+                                loadOptions={loadNameOptions}
+                                onChange={(option) => setSelectedCheck(option as NameOption | null)}
+                                value={selectedCheck}
+                                placeholder="Start typing your name…"
+                                noOptionsMessage={({ inputValue }) =>
+                                    inputValue ? 'No match found' : 'Type to search'
+                                }
+                                isClearable
+                                styles={selectStyles}
+                            />
+
+                            {selectedCheck && (
+                                <p className="text-xs text-green-700 mt-2">
+                                    You're all set — {selectedCheck.value} is registered.
+                                </p>
+                            )}
+                        </div>
 
                         {isAdmin && (
                             <div className="mt-8 pt-6 border-t border-slate-200">
