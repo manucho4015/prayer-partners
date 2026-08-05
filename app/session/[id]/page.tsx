@@ -49,6 +49,9 @@ export default function SessionPage() {
     const [notFound, setNotFound] = useState(false);
     const [copied, setCopied] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
+    const [failures, setFailures] = useState<{ name: string; email: string; error: string }[] | null>(null);
+    const [failuresLoading, setFailuresLoading] = useState(false);
+    const [failuresError, setFailuresError] = useState('');
 
     const [joinedHere, setJoinedHere] = useState<JoinedRecord[]>([]);
     const [selectedCheck, setSelectedCheck] = useState<NameOption | null>(null);
@@ -135,7 +138,7 @@ export default function SessionPage() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Failed to close session');
 
-            localStorage.removeItem(`admin_token_${id}`);
+
             await loadInfo();
         } catch (err) {
             setCloseError(err instanceof Error ? err.message : 'Something went wrong');
@@ -151,6 +154,26 @@ export default function SessionPage() {
             setTimeout(() => setCopied(false), 2000);
         } catch {
             window.prompt('Copy this link:', window.location.href);
+        }
+    }
+
+    async function handleViewFailures() {
+        setFailuresLoading(true);
+        setFailuresError('');
+        try {
+            const adminToken = localStorage.getItem(`admin_token_${id}`);
+            const res = await fetch(`/api/sessions/${id}/failures`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ adminToken }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to load.');
+            setFailures(data.failures);
+        } catch (err) {
+            setFailuresError(err instanceof Error ? err.message : 'Something went wrong');
+        } finally {
+            setFailuresLoading(false);
         }
     }
 
@@ -208,9 +231,42 @@ export default function SessionPage() {
                 </div>
 
                 {info.closed ? (
-                    <p className="text-sm text-green-700 mt-4">
-                        This session has closed. Assignments were emailed to everyone — check your inbox!
-                    </p>
+                    <>
+                        <p className="text-sm text-green-700 mt-4">
+                            This session has closed. Assignments were emailed to everyone — check your inbox!
+                        </p>
+
+                        {isAdmin && (
+                            <div className="mt-4">
+                                <button
+                                    onClick={handleViewFailures}
+                                    disabled={failuresLoading}
+                                    className="text-xs font-medium text-slate-600 border border-slate-300 rounded-full px-3 py-1.5 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                                >
+                                    {failuresLoading ? 'Checking…' : 'View failed emails'}
+                                </button>
+
+                                {failuresError && <p className="text-sm text-red-600 mt-2">{failuresError}</p>}
+
+                                {failures && (
+                                    failures.length === 0 ? (
+                                        <p className="text-xs text-slate-500 mt-2">No failed sends recorded.</p>
+                                    ) : (
+                                        <ul className="mt-2 space-y-1.5">
+                                            {failures.map((f) => (
+                                                <li
+                                                    key={f.email}
+                                                    className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5"
+                                                >
+                                                    {f.name} ({f.email}) — {f.error}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )
+                                )}
+                            </div>
+                        )}
+                    </>
                 ) : (
                     <>
                         <p className="text-slate-500 text-sm mb-3">
