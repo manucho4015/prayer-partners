@@ -7,6 +7,8 @@ emailjs.init({
     privateKey: process.env.EMAILJS_PRIVATE_KEY!,
 });
 
+const RETENTION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+
 interface Participant {
     name: string;
     email: string;
@@ -15,8 +17,14 @@ interface Participant {
 interface SessionData {
     title: string;
     closed: boolean;
-    adminToken: string;
     participants: Participant[];
+}
+
+interface FailureRecord {
+    name: string;
+    email: string;
+    error: string;
+    attemptedAt: number;
 }
 
 function sattoloCycle<T>(items: T[]): T[] {
@@ -34,14 +42,17 @@ export async function POST(
 ) {
     const { id } = await params;
     const { adminToken } = await req.json();
+
+    const storedAdminToken = await redis.get<string>(`admin:${id}`);
+    if (!storedAdminToken || adminToken !== storedAdminToken) {
+        return NextResponse.json({ error: 'Not authorized to close this session.' }, { status: 403 });
+    }
+
     const key = `session:${id}`;
     const session = await redis.get<SessionData>(key);
 
     if (!session) return NextResponse.json({ error: 'Session not found.' }, { status: 404 });
     if (session.closed) return NextResponse.json({ error: 'Already closed.' }, { status: 400 });
-    if (adminToken !== session.adminToken) {
-        return NextResponse.json({ error: 'Not authorized to close this session.' }, { status: 403 });
-    }
     if (session.participants.length < 3) {
         return NextResponse.json({ error: 'Need at least 3 participants.' }, { status: 400 });
     }
@@ -53,7 +64,7 @@ export async function POST(
     }));
 
     let sent = 0;
-    const failures: string[] = [];
+    const failures: FailureRecord[] = [];
 
     for (const { prayer, prayedFor } of assignments) {
         try {
@@ -69,8 +80,9 @@ export async function POST(
             );
             sent++;
         } catch (err) {
+            const message = err instanceof Error ? err.message : 'Unknown error';
             console.error(`Failed to email ${prayer.email}:`, err);
-            failures.push(prayer.email);
+            failures.push({ name: prayer.name, email: prayer.email, error: message, attemptedAt: Date.now() });
         }
         await new Promise((resolve) => setTimeout(resolve, 300));
     }
@@ -79,7 +91,15 @@ export async function POST(
         return NextResponse.json({ error: 'Failed to send any emails.' }, { status: 500 });
     }
 
-    await redis.set(key, { ...session, closed: true, participants: [] }, { ex: 60 });
+    // Only failed entries are kept, so you can follow up manually — everyone
+    // else's data is cleared as before.
+    if (failures.length > 0) {
+        await redis.set(`failures:${id}`, failures, { ex: RETENTION_TTL_SECONDS });
+    }
 
-    return NextResponse.json({ ok: true, sent, failed: failures });
+    // Extended so the session page (and the failures check) stays reachable
+    // long enough for you to actually notice and investigate a report.
+    await redis.set(key, { ...session, closed: true, participants: [] }, { ex: RETENTION_TTL_SECONDS });
+
+    return NextResponse.json({ ok: true, sent, failed: failures.length });
 }
